@@ -2,31 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <upnp/upnp.h>
 #include "list.h"
-
-enum {
-    IPV4,
-    IPV6
-};
-
-/* Only IPv4 support for now */
-struct chromecast_device {
-    struct in_addr addr;
-    char *device_name;
-    char *device_type;
-    char *device_UUID;
-    char *device_OS;
-    char *device_manufacturer;
-    char *device_model_name;
-    char *service_type;
-    char *service_version;
-    char *service_id;
-};
-
-/* TODO: need mutex for access to list of devices */
-struct list devices;
+#include "discover.h"
 
 int discovery_search_result(struct Upnp_Discovery *event);
 int callback(Upnp_EventType etype, void *event, void *cookie);
@@ -34,30 +12,24 @@ void print_device(const struct chromecast_device *x);
 
 UpnpClient_Handle handle = -1;
 
-const char CHROMECAST_DEVICE_TYPE[] = "urn:dial-multiscreen-org:service:dial:1";
-//const char CHROMECAST_DEVICE_TYPE[] = "urn:dial-multiscreen-org:device:dial:1";
+//const char CHROMECAST_DEVICE_TYPE[] = "urn:dial-multiscreen-org:service:dial:1";
+const char CHROMECAST_DEVICE_TYPE[] = "urn:dial-multiscreen-org:device:dial:1";
 
-int main(int argc, char **argv) {
-    int status;
-    list_init(&devices);
-    status = UpnpInit(NULL, 0);
-
-    UpnpRegisterClient(callback, NULL, &handle);
+/* TODO: create thread to periodically search */
+int dial_discover() {
     UpnpSearchAsync(handle, 5, CHROMECAST_DEVICE_TYPE, NULL); 
-    
-    status = UpnpFinish();
+    return 0;
 }
 
-void free_device(struct chromecast_device *x) {
-    free(x->device_name);
-    free(x->device_type);
-    free(x->device_UUID);
-    free(x->device_OS);
-    free(x->device_manufacturer);
-    free(x->device_model_name);
-    free(x->service_type);
-    free(x->service_version);
-    free(x->service_id);
+int dial_init() {
+    list_init(&devices);
+    int status = UpnpInit(NULL, 0);
+    UpnpRegisterClient(callback, NULL, &handle);
+    return status;
+}
+
+int dial_finish() {
+    return UpnpFinish();
 }
 
 int chromecast_matches_UUID(const void *_UUID, void *_device) {
@@ -131,22 +103,6 @@ char *create_string_copy(const char *str) {
     return copy;
 }
 
-/*
- *
- *
-struct chromecast_device {
-    struct in_addr addr;
-    char *device_name;
-    char *device_type;
-    char *device_UUID;
-    char *device_OS;
-    char *device_manufacturer;
-    char *device_model_name;
-    char *service_type;
-    char *service_version;
-    char *service_id;
-};
-**/
 int discovery_search_result(struct Upnp_Discovery *event) {
     if (event->ErrCode != UPNP_E_SUCCESS) {
         fprintf(stderr, "Error in discovering device\n");
@@ -175,10 +131,11 @@ int discovery_search_result(struct Upnp_Discovery *event) {
         device->service_type = create_string_copy(get_device_property(desc, "serviceType"));
         device->service_version = create_string_copy(event->ServiceVer);
         device->service_id = create_string_copy(get_device_property(desc, "serviceId"));
-        list_add(&devices, device);
+        list_add_sync(&devices, device);
         print_device(device);
     }
     ixmlDocument_free(desc);
+    return 0;
 }
 
 void print_device(const struct chromecast_device *x) {
